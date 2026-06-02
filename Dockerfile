@@ -11,7 +11,7 @@ WORKDIR /app
 RUN curl -L -s -o /usr/local/bin/cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 && \
     chmod +x /usr/local/bin/cloudflared
 
-# 2. 通过 GitHub API 动态获取并下载最新稳定版 Mihomo 内核 (.gz 格式)
+# 2. 通过 GitHub API 动态获取并下载最新稳定版 Mihomo 内核
 RUN DOWNLOAD_URL=$(curl -s https://api.github.com/repos/MetaCubeX/mihomo/releases/latest | jq -r '.assets[] | select(.name | test("mihomo-linux-amd64-v.*\\.gz$")) | .browser_download_url' | head -n 1) && \
     curl -L -s -o /tmp/mihomo.gz "$DOWNLOAD_URL" && \
     gunzip /tmp/mihomo.gz && \
@@ -25,8 +25,10 @@ RUN npm install --production
 # 4. 拷贝项目核心脚本
 COPY . .
 
-# 创建运行专属目录并完全放开读写权限，彻底规避只读文件系统坑
-RUN mkdir -p /app/run && chmod 777 /app/run
+# 【核心修复】：提前创建目录并预下载 GeoIP 数据库，彻底断绝运行时下载卡死的可能
+RUN mkdir -p /app/run && \
+    curl -L -s -o /app/run/Country.mmdb https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/country.mmdb && \
+    chmod -R 777 /app/run
 
 EXPOSE 3000
 
