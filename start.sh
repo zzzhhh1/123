@@ -20,4 +20,4 @@ sing-box run -c /etc/sing-box/config.json &
 
 # 前台运行 cloudflared 隧道
 echo "正在启动 Cloudflare Argo Tunnel..."
-cloudflared tunnel --no-autoupdate run --token ${ARGO_TOKEN}
+cloudflared tunnel --no-autoupdate --protocol http2 run --token ${ARGO_TOKEN}
