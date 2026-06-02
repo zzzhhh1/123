@@ -7,11 +7,10 @@ const path = require('path');
 const UUID = process.env.UUID; 
 const TUNNEL_TOKEN = process.env.TUNNEL_TOKEN; 
 const TUNNEL_DOMAIN = process.env.TUNNEL_DOMAIN; 
-const SUB_PATH = process.env.SUB_PATH || "kjgx";   // 专属订阅路径
-const PORT = parseInt(process.env.PORT) || 8001;   // 内部转发端口
+const SUB_PATH = process.env.SUB_PATH || "kjgx";   
+const PORT = parseInt(process.env.PORT) || 8001;   // 内部转发端口，默认 8001
 // ====================================================
 
-// 基础合规性检查
 if (!UUID || !TUNNEL_TOKEN || !TUNNEL_DOMAIN) {
   console.error("【错误】未检测到必要的环境变量！请检查后台配置。");
   process.exit(1);
@@ -20,8 +19,8 @@ if (!UUID || !TUNNEL_TOKEN || !TUNNEL_DOMAIN) {
 const runDir = path.join(__dirname, 'run');
 const configPath = path.join(runDir, 'config.yaml');
 
-// 1. 动态生成 Mihomo (Clash Meta) 专属的 YAML 配置文件
-// 独家引入 listeners 架构，完美模拟本地入站
+// 1. 动态生成 Mihomo 配置
+// 【核心修复】：将空阵列显式声明为 []，规避 YAML 解析崩溃
 const mihomoConfig = `
 mixed-port: 7890
 allow-lan: false
@@ -33,15 +32,15 @@ listeners:
   - name: vless-in
     type: vless
     port: ${PORT}
-    listen: 127.0.0.1
+    listen: 0.0.0.0
     udp: true
     uuid: ${UUID}
     transport:
       type: ws
       path: /
 
-proxies:
-proxy-groups:
+proxies: []
+proxy-groups: []
 rules:
   - MATCH,direct
 `;
@@ -49,7 +48,7 @@ rules:
 try {
   fs.writeFileSync(configPath, mihomoConfig.trim());
 } catch (err) {
-  console.error("写入配置文件失败，可能遇到了平台的只读权限限制:", err);
+  console.error("写入配置文件失败:", err);
   process.exit(1);
 }
 
@@ -69,7 +68,6 @@ http.createServer((req, res) => {
 });
 
 // 3. 常驻运行核心组件
-// 强制指定 Mihomo 运行的工作目录 -d，避开一切潜在的相对路径报错
 const bootstrapScript = `
   mihomo -d ${runDir} -f ${configPath} > /dev/null 2>&1 &
   cloudflared tunnel --no-autoupdate run --token ${TUNNEL_TOKEN} > /dev/null 2>&1 &
