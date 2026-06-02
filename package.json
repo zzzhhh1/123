@@ -1,5 +1,5 @@
 {
-  "name": "dcdeploy-mihomo",
+  "name": "dcdeploy-mihomo-node",
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
