@@ -1,32 +1,31 @@
 FROM node:18-slim
 
-# 安装运行环境，并在打包阶段就下载好 sing-box 和 cloudflared
+# 安装必要依赖，并在打包阶段下载 cloudflared 和最新的 Mihomo 内核
 RUN apt-get update && \
-    apt-get install -y curl unzip bash ca-certificates && \
+    apt-get install -y curl unzip gzip bash ca-certificates jq && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# 提前下载 cloudflared 并赋予执行权限
+# 1. 下载 cloudflared
 RUN curl -L -s -o /usr/local/bin/cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 && \
     chmod +x /usr/local/bin/cloudflared
 
-# 提前下载 sing-box 并赋予执行权限
-RUN LATEST_URL=$(curl -Ls -o /dev/null -w %{url_effective} https://github.com/SagerNet/sing-box/releases/latest) && \
-    LATEST_VERSION=${LATEST_URL##*/} && \
-    LATEST_VERSION_NO_V=${LATEST_VERSION#v} && \
-    curl -L -s -o /tmp/sing-box.tar.gz "https://github.com/SagerNet/sing-box/releases/download/${LATEST_VERSION}/sing-box-${LATEST_VERSION_NO_V}-linux-amd64.tar.gz" && \
-    tar -xzf /tmp/sing-box.tar.gz -C /tmp/ && \
-    mv /tmp/sing-box-${LATEST_VERSION_NO_V}-linux-amd64/sing-box /usr/local/bin/sing-box && \
-    chmod +x /usr/local/bin/sing-box && \
-    rm -rf /tmp/sing-box*
+# 2. 通过 GitHub API 动态获取并下载最新稳定版 Mihomo 内核 (.gz 格式)
+RUN DOWNLOAD_URL=$(curl -s https://api.github.com/repos/MetaCubeX/mihomo/releases/latest | jq -r '.assets[] | select(.name | test("mihomo-linux-amd64-v.*\\.gz$")) | .browser_download_url' | head -n 1) && \
+    curl -L -s -o /tmp/mihomo.gz "$DOWNLOAD_URL" && \
+    gunzip /tmp/mihomo.gz && \
+    mv /tmp/mihomo /usr/local/bin/mihomo && \
+    chmod +x /usr/local/bin/mihomo
 
-# 拷贝项目文件
+# 3. 拷贝项目依赖信息
 COPY package*.json ./
 RUN npm install --production
+
+# 4. 拷贝项目核心脚本
 COPY . .
 
-# 创建一个专门放配置文件的本地目录，避免权限问题
+# 创建运行专属目录并完全放开读写权限，彻底规避只读文件系统坑
 RUN mkdir -p /app/run && chmod 777 /app/run
 
 EXPOSE 3000
