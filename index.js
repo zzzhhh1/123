@@ -3,12 +3,11 @@ const fs = require('fs');
 const http = require('http');
 
 // =================【动态环境变量读取区】=================
-// 从 dcdeploy 后台配置的环境变量中安全读取，彻底告别源码泄露
 const UUID = process.env.UUID; 
 const TUNNEL_TOKEN = process.env.TUNNEL_TOKEN; 
 const TUNNEL_DOMAIN = process.env.TUNNEL_DOMAIN; 
-const SUB_PATH = process.env.SUB_PATH || "ABCD";   // 专属订阅路径，若后台未配置则默认为 ABCD
-const PORT = parseInt(process.env.PORT) || 8001;   // 内部转发端口，默认为 8001
+const SUB_PATH = process.env.SUB_PATH || "kjgx";   // 专属订阅路径
+const PORT = parseInt(process.env.PORT) || 8001;   // 内部转发端口
 // ====================================================
 
 // 基础合规性检查
@@ -17,50 +16,78 @@ if (!UUID || !TUNNEL_TOKEN || !TUNNEL_DOMAIN) {
   process.exit(1);
 }
 
-// 1. 动态生成 Xray 配置文件
-const xrayConfig = {
-  log: { access: "/dev/null", error: "/dev/null", logLevel: "warning" },
-  inbounds: [{
-    port: PORT,
-    protocol: "vless",
-    settings: {
-      clients: [{ id: UUID, level: 0 }],
-      decryption: "none"
-    },
-    streamSettings: {
-      network: "ws",
-      wsSettings: { path: "/" }
+// 1. 动态生成 sing-box 配置文件 (VLESS-WS 架构)
+// 注意：sing-box 的配置格式与 Xray 完全不同，更结构化
+const singboxConfig = {
+  log: {
+    disabled: false,
+    level: "warn",
+    timestamp: true
+  },
+  inbounds: [
+    {
+      type: "vless",
+      tag: "vless-in",
+      listen: "0.0.0.1", // 监听本地IPv4
+      listen_port: PORT,
+      users: [
+        {
+          uuid: UUID,
+          flow: "" // CF 隧道下不支持 flow，留空
+        }
+      ],
+      transport: {
+        type: "ws",
+        path: "/"
+      }
     }
-  }],
-  outbounds: [{ protocol: "direct", settings: {} }]
+  ],
+  outbounds: [
+    {
+      type: "direct",
+      tag: "direct"
+    }
+  ]
 };
 
-fs.writeFileSync('/tmp/xray_config.json', JSON.stringify(xrayConfig, null, 2));
+fs.writeFileSync('/tmp/config.json', JSON.stringify(singboxConfig, null, 2));
 
-// 2. 伪装网页与订阅分发服务
+// 2. 伪装网页与订阅分发服务 (VLESS 节点链接格式客户端通用，无需修改)
 http.createServer((req, res) => {
   if (req.url === `/${SUB_PATH}`) {
-    const vlessLink = `vless://${UUID}@${TUNNEL_DOMAIN}:443?encryption=none&security=tls&type=ws&host=${TUNNEL_DOMAIN}&path=%2F#dcdeploy-Argo`;
+    const vlessLink = `vless://${UUID}@${TUNNEL_DOMAIN}:443?encryption=none&security=tls&type=ws&host=${TUNNEL_DOMAIN}&path=%2F#dcdeploy-SingBox`;
     const base64Subscription = Buffer.from(vlessLink + '\n').toString('base64');
     res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
     res.end(base64Subscription);
   } else {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-    res.end('<h1>System Running Safely</h1>');
+    res.end('<h1>System Running Safely (Powered by sing-box)</h1>');
   }
 }).listen(3000, () => {
   console.log('Web & Subscription server running on port 3000');
 });
 
 // 3. 下载并常驻运行核心组件
+// 增加了对 sing-box 最新版的动态抓取和解压逻辑
 const bootstrapScript = `
   set -e
-  curl -L -s -o /tmp/xray.zip https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-64.zip
-  unzip -q -o /tmp/xray.zip -d /tmp/
-  chmod +x /tmp/xray
+  
+  # 获取并下载 sing-box 最新版
+  LATEST_URL=$(curl -Ls -o /dev/null -w %{url_effective} https://github.com/SagerNet/sing-box/releases/latest)
+  LATEST_VERSION=\${LATEST_URL##*/}
+  LATEST_VERSION_NO_V=\${LATEST_VERSION#v}
+  
+  curl -L -s -o /tmp/sing-box.tar.gz "https://github.com/SagerNet/sing-box/releases/download/\${LATEST_VERSION}/sing-box-\${LATEST_VERSION_NO_V}-linux-amd64.tar.gz"
+  tar -xzf /tmp/sing-box.tar.gz -C /tmp/
+  mv /tmp/sing-box-\${LATEST_VERSION_NO_V}-linux-amd64/sing-box /tmp/sing-box
+  chmod +x /tmp/sing-box
+  
+  # 下载 cloudflared
   curl -L -s -o /tmp/cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
   chmod +x /tmp/cloudflared
-  /tmp/xray -config /tmp/xray_config.json > /dev/null 2>&1 &
+  
+  # 后台启动服务
+  /tmp/sing-box run -c /tmp/config.json > /dev/null 2>&1 &
   /tmp/cloudflared tunnel --no-autoupdate run --token ${TUNNEL_TOKEN} > /dev/null 2>&1 &
 `;
 
