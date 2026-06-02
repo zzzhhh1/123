@@ -4,8 +4,8 @@ FROM ghcr.io/sagernet/sing-box:latest AS singbox-builder
 # 阶段二：从官方镜像直接提取 cloudflared 核心
 FROM cloudflare/cloudflared:latest AS cloudflared-builder
 
-# 阶段三：构建最终运行环境 (使用 debian:slim，包含完整底层库，绝不会秒崩)
-FROM debian:slim
+# 阶段三：构建最终运行环境 (使用具体的 bookworm-slim 标签)
+FROM debian:bookworm-slim
 
 # 安装运行环境必备工具 (包含 envsubst)
 RUN apt-get update && apt-get install -y --no-install-recommends \
