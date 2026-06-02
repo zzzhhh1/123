@@ -8,7 +8,7 @@ const UUID = process.env.UUID;
 const TUNNEL_TOKEN = process.env.TUNNEL_TOKEN; 
 const TUNNEL_DOMAIN = process.env.TUNNEL_DOMAIN; 
 const SUB_PATH = process.env.SUB_PATH || "kjgx";   
-const PROXY_PORT = parseInt(process.env.PROXY_PORT) || 8001;   // 【终极修复】：改名 PROXY_PORT，彻底避开云平台自带的 PORT 冲突
+const PROXY_PORT = parseInt(process.env.PROXY_PORT) || 8001;   // 避开系统自带 PORT，防止和 3000 冲突
 // ====================================================
 
 if (!UUID || !TUNNEL_TOKEN || !TUNNEL_DOMAIN) {
