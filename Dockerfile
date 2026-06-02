@@ -1,26 +1,32 @@
-# 直接使用最新版 Debian 作为底层，绝对不会出现库缺失的问题
-FROM debian:latest
+# 阶段一：从官方镜像直接提取 sing-box 核心
+FROM ghcr.io/sagernet/sing-box:latest AS singbox-builder
 
-# 更新系统并安装所有必要的工具（包括 sing-box 运行所需的 wget 和 envsubst 所需的 gettext）
-RUN apt-get update && apt-get install -y curl wget unzip tzdata ca-certificates gettext-base \
+# 阶段二：从官方镜像直接提取 cloudflared 核心
+FROM cloudflare/cloudflared:latest AS cloudflared-builder
+
+# 阶段三：构建最终运行环境 (使用 debian:slim，包含完整底层库，绝不会秒崩)
+FROM debian:slim
+
+# 安装运行环境必备工具 (包含 envsubst)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates tzdata gettext-base \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# 下载并安装 sing-box
-RUN wget -qO /usr/local/bin/sing-box "https://github.com/SagerNet/sing-box/releases/download/v1.9.0/sing-box-1.9.0-linux-amd64" \
-    && chmod +x /usr/local/bin/sing-box
+# 从前面的官方镜像中提取并植入核心程序
+COPY --from=singbox-builder /usr/local/bin/sing-box /usr/local/bin/sing-box
+COPY --from=cloudflared-builder /usr/local/bin/cloudflared /usr/local/bin/cloudflared
 
-# 下载并安装 cloudflared
-RUN wget -qO /usr/local/bin/cloudflared "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64" \
-    && chmod +x /usr/local/bin/cloudflared
+# 赋予执行权限
+RUN chmod +x /usr/local/bin/sing-box /usr/local/bin/cloudflared
 
-# 复制配置文件和启动脚本
+# 复制我们在仓库写的配置文件和启动脚本
 COPY config.template.json /etc/sing-box/config.template.json
 COPY start.sh /start.sh
 
-# 赋予执行权限
+# 赋予脚本执行权限
 RUN chmod +x /start.sh
 
-# 暴露端口并启动
+# 暴露端口给健康探针，并设定启动命令
 EXPOSE 3000
 CMD ["/start.sh"]
