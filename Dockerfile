@@ -1,34 +1,29 @@
 FROM node:18-slim
 
-# 安装必要依赖，并在打包阶段下载 cloudflared 和最新的 Mihomo 内核
+# 安装必要依赖
 RUN apt-get update && \
     apt-get install -y curl unzip gzip bash ca-certificates jq && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# 1. 下载 cloudflared
+# 1. 下载 cloudflared 到系统全局可执行路径
 RUN curl -L -s -o /usr/local/bin/cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 && \
     chmod +x /usr/local/bin/cloudflared
 
-# 2. 通过 GitHub API 动态获取并下载最新稳定版 Mihomo 内核
+# 2. 下载最新稳定版 Mihomo 内核到系统全局可执行路径
 RUN DOWNLOAD_URL=$(curl -s https://api.github.com/repos/MetaCubeX/mihomo/releases/latest | jq -r '.assets[] | select(.name | test("mihomo-linux-amd64-v.*\\.gz$")) | .browser_download_url' | head -n 1) && \
     curl -L -s -o /tmp/mihomo.gz "$DOWNLOAD_URL" && \
     gunzip /tmp/mihomo.gz && \
     mv /tmp/mihomo /usr/local/bin/mihomo && \
     chmod +x /usr/local/bin/mihomo
 
-# 3. 拷贝项目依赖信息
+# 3. 预下载 GeoIP 数据库并暂存到 /app 目录下（打包固化）
+RUN curl -L -s -o /app/Country.mmdb https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/country.mmdb
+
 COPY package*.json ./
 RUN npm install --production
-
-# 4. 拷贝项目核心脚本
 COPY . .
-
-# 【核心修复】：提前创建目录并预下载 GeoIP 数据库，彻底断绝运行时下载卡死的可能
-RUN mkdir -p /app/run && \
-    curl -L -s -o /app/run/Country.mmdb https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/country.mmdb && \
-    chmod -R 777 /app/run
 
 EXPOSE 3000
 
