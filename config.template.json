@@ -6,7 +6,7 @@
     {
       "type": "vless",
       "tag": "vless-in",
-      "listen": "127.0.0.1",
+      "listen": "::",
       "listen_port": 3000,
       "users": [
         {
@@ -16,7 +16,7 @@
       ],
       "transport": {
         "type": "ws",
-        "path": "/vless-argo"
+        "path": "/blog"
       }
     }
   ],
