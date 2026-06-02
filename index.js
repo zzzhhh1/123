@@ -17,7 +17,6 @@ if (!UUID || !TUNNEL_TOKEN || !TUNNEL_DOMAIN) {
 }
 
 // 1. 动态生成 sing-box 配置文件 (VLESS-WS 架构)
-// 注意：sing-box 的配置格式与 Xray 完全不同，更结构化
 const singboxConfig = {
   log: {
     disabled: false,
@@ -28,7 +27,7 @@ const singboxConfig = {
     {
       type: "vless",
       tag: "vless-in",
-      listen: "0.0.0.1", // 监听本地IPv4
+      listen: "127.0.0.1", // 优化为标准本地环回地址，避免网络命名空间路由错误
       listen_port: PORT,
       users: [
         {
@@ -63,12 +62,11 @@ http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     res.end('<h1>System Running Safely (Powered by sing-box)</h1>');
   }
-}).listen(3000, () => {
+}).listen(3000, '0.0.0.0', () => { // 【关键修复】：强制绑定 0.0.0.0，允许穿透云平台防火墙
   console.log('Web & Subscription server running on port 3000');
 });
 
 // 3. 下载并常驻运行核心组件
-// 增加了对 sing-box 最新版的动态抓取和解压逻辑
 const bootstrapScript = `
   set -e
   
