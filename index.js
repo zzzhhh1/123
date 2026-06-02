@@ -3,11 +3,11 @@ const fs = require('fs');
 const http = require('http');
 
 // =================【核心参数配置区】=================
-const UUID = "把这里替换为你第一步生成的UUID"; 
+const UUID = "ad58bd8c-d279-48c4-aea2-06c5b63b58f9"; 
 const PORT = 8001;                          
-const SUB_PATH = "ABCD";                    // 你的专属节点订阅路径（可以乱打几个字母）
-const TUNNEL_DOMAIN = "替换为你在CF配置的子域名+主域名"; // 例如：dcd.yourdomain.com
-const TUNNEL_TOKEN = "把这里替换为你刚才复制的以ey开头的完整Token"; 
+const SUB_PATH = "kjgx";                    // 你的专属节点订阅路径（可以乱打几个字母）
+const TUNNEL_DOMAIN = "dcd.kjgx.qzz.io"; // 例如：dcd.yourdomain.com
+const TUNNEL_TOKEN = "eyJhIjoiZWUzYjNhOGNkMzhkNGU1YWRkYzk1YTc2NDE5MTBmMjkiLCJ0IjoiMDgwNDQ5ZmYtZjUyMC00YzRhLTk5MTAtMWYxZTEzNzM1NzM1IiwicyI6Ik16aGpZVFZpWXpZdE9EVXpOQzAwT1RJekxXRTBaVE10WVdNd05UbGhOelZqTkdKaCJ9"; 
 // ====================================================
 
 const xrayConfig = {
