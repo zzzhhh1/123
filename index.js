@@ -8,7 +8,7 @@ const UUID = process.env.UUID;
 const TUNNEL_TOKEN = process.env.TUNNEL_TOKEN; 
 const TUNNEL_DOMAIN = process.env.TUNNEL_DOMAIN; 
 const SUB_PATH = process.env.SUB_PATH || "kjgx";   
-const PORT = parseInt(process.env.PORT) || 8001;   
+const PROXY_PORT = parseInt(process.env.PROXY_PORT) || 8001;   // 【终极修复】：改名 PROXY_PORT，彻底避开云平台自带的 PORT 冲突
 // ====================================================
 
 if (!UUID || !TUNNEL_TOKEN || !TUNNEL_DOMAIN) {
@@ -16,7 +16,7 @@ if (!UUID || !TUNNEL_TOKEN || !TUNNEL_DOMAIN) {
   process.exit(1);
 }
 
-// 【终极修复】：所有运行时文件，全部强制指引到全平台绝对可写的 /tmp 缓存区
+// 所有运行时配置文件，全部强制指引到全平台绝对可写的 /tmp 缓存区
 const configPath = path.join('/tmp', 'config.yaml');
 
 // 运行时将固化在镜像里的数据库，复制到可写区供给 Mihomo 读写
@@ -39,7 +39,7 @@ external-controller: 127.0.0.1:9090
 listeners:
   - name: vless-in
     type: vless
-    port: ${PORT}
+    port: ${PROXY_PORT}
     listen: 0.0.0.0
     udp: true
     uuid: ${UUID}
@@ -60,7 +60,7 @@ try {
   process.exit(1);
 }
 
-// 2. 伪装网页与订阅分发（融合：多单页随机轮播逻辑）
+// 2. 伪装网页与订阅分发
 http.createServer((req, res) => {
   if (req.url === `/${SUB_PATH}`) {
     const vlessLink = `vless://${UUID}@${TUNNEL_DOMAIN}:443?encryption=none&security=tls&type=ws&host=${TUNNEL_DOMAIN}&path=%2F#dcdeploy-Mihomo`;
@@ -68,7 +68,6 @@ http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
     res.end(base64Subscription);
   } else {
-    // 检查是否存在 camouflage 随机网页文件夹
     const camoDir = path.join(__dirname, 'camouflage');
     
     if (fs.existsSync(camoDir)) {
@@ -77,7 +76,6 @@ http.createServer((req, res) => {
         const htmlFiles = files.filter(f => f.endsWith('.html'));
         
         if (htmlFiles.length > 0) {
-          // 随机抽取一个网页展示
           const randomPage = htmlFiles[Math.floor(Math.random() * htmlFiles.length)];
           const data = fs.readFileSync(path.join(camoDir, randomPage));
           res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -85,11 +83,10 @@ http.createServer((req, res) => {
           return;
         }
       } catch (camoErr) {
-        console.error("读取随机网页失败，转入保底提示");
+        console.error("读取随机网页失败");
       }
     }
     
-    // 保底单页，防止没有任何网页时挂掉
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     res.end('<h1>System Running Safely (Powered by Mihomo)</h1>');
   }
@@ -98,7 +95,6 @@ http.createServer((req, res) => {
 });
 
 // 3. 常驻运行核心组件
-// 强制工作目录 -d 设为 /tmp，避开任何只读权限拦截
 const bootstrapScript = `
   mihomo -d /tmp -f ${configPath} > /dev/null 2>&1 &
   cloudflared tunnel --no-autoupdate run --token ${TUNNEL_TOKEN} > /dev/null 2>&1 &
