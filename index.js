@@ -1,6 +1,7 @@
-const { exec } = require('child_process');
+const { spawn } = require('child_process');
 const fs = require('fs');
-const https = require('https'); // 【核心修改】：引入原生的 https 模块
+const http = require('http');
+const net = require('net'); // 引入 net 模块，用于手搓原生 TCP 级 WebSocket 转发
 const path = require('path');
 
 // =================【动态环境变量读取区】=================
@@ -8,7 +9,7 @@ const UUID = process.env.UUID;
 const TUNNEL_TOKEN = process.env.TUNNEL_TOKEN; 
 const TUNNEL_DOMAIN = process.env.TUNNEL_DOMAIN; 
 const SUB_PATH = process.env.SUB_PATH || "kjgx";   
-const PROXY_PORT = parseInt(process.env.PROXY_PORT) || 8001;   
+const PROXY_PORT = parseInt(process.env.PROXY_PORT) || 8001;   // 内部 Mihomo 端口
 // ====================================================
 
 if (!UUID || !TUNNEL_TOKEN || !TUNNEL_DOMAIN) {
@@ -16,7 +17,6 @@ if (!UUID || !TUNNEL_TOKEN || !TUNNEL_DOMAIN) {
   process.exit(1);
 }
 
-// 所有运行时配置文件，全部强制指引到全平台绝对可写的 /tmp 缓存区
 const configPath = path.join('/tmp', 'config.yaml');
 
 // 运行时将固化在镜像里的数据库，复制到可写区供给 Mihomo 读写
@@ -40,7 +40,7 @@ listeners:
   - name: vless-in
     type: vless
     port: ${PROXY_PORT}
-    listen: 0.0.0.0
+    listen: 127.0.0.1
     udp: true
     uuid: ${UUID}
     transport:
@@ -60,52 +60,72 @@ try {
   process.exit(1);
 }
 
-// 2. 【HTTPS 核心修复】：读取在编译阶段提前准备好的自签名 SSL 证书
-const sslOptions = {
-  key: fs.readFileSync(path.join(__dirname, 'key.pem')),
-  cert: fs.readFileSync(path.join(__dirname, 'cert.pem'))
-};
-
-// 3. 伪装网页与订阅分发（升级为原生的加密 HTTPS 服务）
-https.createServer(sslOptions, (req, res) => {
+// 2. 创建全能统一 Web 服务
+const server = http.createServer((req, res) => {
+  // 拦截分流：如果是暗号路径，下发节点订阅
   if (req.url === `/${SUB_PATH}`) {
     const vlessLink = `vless://${UUID}@${TUNNEL_DOMAIN}:443?encryption=none&security=tls&type=ws&host=${TUNNEL_DOMAIN}&path=%2F#dcdeploy-Mihomo`;
     const base64Subscription = Buffer.from(vlessLink + '\n').toString('base64');
     res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
-    res.end(base64Subscription);
-  } else {
-    const camoDir = path.join(__dirname, 'camouflage');
-    
-    if (fs.existsSync(camoDir)) {
-      try {
-        const files = fs.readdirSync(camoDir);
-        const htmlFiles = files.filter(f => f.endsWith('.html'));
-        
-        if (htmlFiles.length > 0) {
-          const randomPage = htmlFiles[Math.floor(Math.random() * htmlFiles.length)];
-          const data = fs.readFileSync(path.join(camoDir, randomPage));
-          res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-          res.end(data);
-          return;
-        }
-      } catch (camoErr) {
-        console.error("读取随机网页失败");
-      }
-    }
-    
-    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-    res.end('<h1>System Running Safely (Powered by Mihomo via HTTPS)</h1>');
+    return res.end(base64Subscription);
   }
-}).listen(3000, '0.0.0.0', () => {
-  console.log('Secure HTTPS Web server running on port 3000');
+
+  // 其他所有普通网页请求，直接展示随机伪装网页
+  const camoDir = path.join(__dirname, 'camouflage');
+  if (fs.existsSync(camoDir)) {
+    try {
+      const files = fs.readdirSync(camoDir);
+      const htmlFiles = files.filter(f => f.endsWith('.html'));
+      
+      if (htmlFiles.length > 0) {
+        const randomPage = htmlFiles[Math.floor(Math.random() * htmlFiles.length)];
+        const data = fs.readFileSync(path.join(camoDir, randomPage));
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        return res.end(data);
+      }
+    } catch (camoErr) {
+      console.error("读取随机网页失败");
+    }
+  }
+  
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  res.end('<h1>System Running Safely (Powered by Mihomo Engine)</h1>');
 });
 
-// 4. 常驻运行核心组件
-const bootstrapScript = `
-  mihomo -d /tmp -f ${configPath} > /dev/null 2>&1 &
-  cloudflared tunnel --no-autoupdate run --token ${TUNNEL_TOKEN} > /dev/null 2>&1 &
-`;
+// 【核心超进化】：监听 Upgrade 事件，拦截客户端的 VLESS-WebSocket 流量并无缝转发给内部的 Mihomo
+server.on('upgrade', (req, socket, head) => {
+  // 建立一条到内部 Mihomo 8001 端口的流式 TCP 管道
+  const proxySocket = net.connect(PROXY_PORT, '127.0.0.1', () => {
+    // 重组并向 Mihomo 发送原始的 HTTP 升级请求头
+    let rawRequest = `${req.method} ${req.url} HTTP/${req.httpVersion}\r\n`;
+    for (let i = 0; i < req.rawHeaders.length; i += 2) {
+      rawRequest += `${req.rawHeaders[i]}: ${req.rawHeaders[i+1]}\r\n`;
+    }
+    rawRequest += '\r\n';
+    
+    proxySocket.write(rawRequest);
+    if (head && head.length > 0) proxySocket.write(head);
+    
+    // 双向管道数据绑定（正向代理和反向代理在内存中对流）
+    socket.pipe(proxySocket);
+    proxySocket.expand = proxySocket.pipe(socket);
+  });
 
-exec(bootstrapScript, { shell: '/bin/bash' }, (err) => {
-  if (err) console.error('Failed to start core services:', err);
+  proxySocket.on('error', (err) => {
+    console.error('内部代理隧道转发失败:', err);
+    socket.end();
+  });
+  socket.on('error', () => proxySocket.end());
 });
+
+// 统一监听 3000 端口
+server.listen(3000, '0.0.0.0', () => {
+  console.log('Unified Reverse-Proxy Web Server running on port 3000');
+});
+
+// 3. 常驻运行内部核心组件
+console.log('正在拉起 Mihomo 核心进程...');
+spawn('mihomo', ['-d', '/tmp', '-f', configPath], { stdio: 'inherit' });
+
+console.log('正在拉起 Cloudflared 隧道进程...');
+spawn('cloudflared', ['tunnel', '--no-autoupdate', 'run', '--token', TUNNEL_TOKEN], { stdio: 'inherit' });
