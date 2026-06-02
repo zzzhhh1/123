@@ -1,6 +1,6 @@
 const { exec } = require('child_process');
 const fs = require('fs');
-const http = require('http');
+const https = require('https'); // 【核心修改】：引入原生的 https 模块
 const path = require('path');
 
 // =================【动态环境变量读取区】=================
@@ -8,7 +8,7 @@ const UUID = process.env.UUID;
 const TUNNEL_TOKEN = process.env.TUNNEL_TOKEN; 
 const TUNNEL_DOMAIN = process.env.TUNNEL_DOMAIN; 
 const SUB_PATH = process.env.SUB_PATH || "kjgx";   
-const PROXY_PORT = parseInt(process.env.PROXY_PORT) || 8001;   // 避开系统自带 PORT，防止和 3000 冲突
+const PROXY_PORT = parseInt(process.env.PROXY_PORT) || 8001;   
 // ====================================================
 
 if (!UUID || !TUNNEL_TOKEN || !TUNNEL_DOMAIN) {
@@ -60,8 +60,14 @@ try {
   process.exit(1);
 }
 
-// 2. 伪装网页与订阅分发
-http.createServer((req, res) => {
+// 2. 【HTTPS 核心修复】：读取在编译阶段提前准备好的自签名 SSL 证书
+const sslOptions = {
+  key: fs.readFileSync(path.join(__dirname, 'key.pem')),
+  cert: fs.readFileSync(path.join(__dirname, 'cert.pem'))
+};
+
+// 3. 伪装网页与订阅分发（升级为原生的加密 HTTPS 服务）
+https.createServer(sslOptions, (req, res) => {
   if (req.url === `/${SUB_PATH}`) {
     const vlessLink = `vless://${UUID}@${TUNNEL_DOMAIN}:443?encryption=none&security=tls&type=ws&host=${TUNNEL_DOMAIN}&path=%2F#dcdeploy-Mihomo`;
     const base64Subscription = Buffer.from(vlessLink + '\n').toString('base64');
@@ -88,13 +94,13 @@ http.createServer((req, res) => {
     }
     
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-    res.end('<h1>System Running Safely (Powered by Mihomo)</h1>');
+    res.end('<h1>System Running Safely (Powered by Mihomo via HTTPS)</h1>');
   }
 }).listen(3000, '0.0.0.0', () => {
-  console.log('Web & Camouflage server running on port 3000');
+  console.log('Secure HTTPS Web server running on port 3000');
 });
 
-// 3. 常驻运行核心组件
+// 4. 常驻运行核心组件
 const bootstrapScript = `
   mihomo -d /tmp -f ${configPath} > /dev/null 2>&1 &
   cloudflared tunnel --no-autoupdate run --token ${TUNNEL_TOKEN} > /dev/null 2>&1 &
