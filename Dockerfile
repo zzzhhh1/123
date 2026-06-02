@@ -1,30 +1,24 @@
-FROM node:18-slim
+# 阶段一：获取官方 sing-box
+FROM ghcr.io/sagernet/sing-box:latest AS singbox-builder
 
-# 安装必要依赖
-RUN apt-get update && \
-    apt-get install -y curl unzip gzip bash ca-certificates && \
-    rm -rf /var/lib/apt/lists/*
+# 阶段二：获取官方 cloudflared
+FROM cloudflare/cloudflared:latest AS cloudflared-builder
 
-WORKDIR /app
+# 阶段三：最终镜像
+FROM alpine:latest
 
-# 1. 下载 cloudflared 到全局路径
-RUN curl -L -s -o /usr/local/bin/cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 && \
-    chmod +x /usr/local/bin/cloudflared
+# 安装必要依赖，特别是 gettext（其中包含了 envsubst 工具）
+RUN apk update && apk add --no-cache ca-certificates tzdata gettext && update-ca-certificates
 
-# 2. 选用最高兼容性稳定版的 Mihomo 内核（GOAMD64=v1），杜绝所有新老 CPU 虚拟化指令集冲突报错
-ENV MIHOMO_VERSION=v1.19.26
-RUN curl -L -s -o /tmp/mihomo.gz "https://github.com/MetaCubeX/mihomo/releases/download/${MIHOMO_VERSION}/mihomo-linux-amd64-compatible-${MIHOMO_VERSION}.gz" && \
-    gunzip /tmp/mihomo.gz && \
-    mv /tmp/mihomo /usr/local/bin/mihomo && \
-    chmod +x /usr/local/bin/mihomo
+# 提取核心程序
+COPY --from=singbox-builder /usr/local/bin/sing-box /usr/local/bin/sing-box
+COPY --from=cloudflared-builder /usr/local/bin/cloudflared /usr/local/bin/cloudflared
 
-# 3. 预载 GeoIP 路由数据库暂存到镜像中
-RUN curl -L -s -o /app/Country.mmdb https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/country.mmdb
+RUN chmod +x /usr/local/bin/sing-box /usr/local/bin/cloudflared
 
-COPY package*.json ./
-RUN npm install --production
-COPY . .
+# 复制模板文件和启动脚本
+COPY config.template.json /etc/sing-box/config.template.json
+COPY start.sh /start.sh
+RUN chmod +x /start.sh
 
-EXPOSE 3000
-
-CMD ["npm", "start"]
+CMD ["/start.sh"]
