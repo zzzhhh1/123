@@ -1,8 +1,6 @@
 {
   "log": {
-    "disabled": false,
-    "level": "fatal",
-    "timestamp": true
+    "level": "info"
   },
   "inbounds": [
     {
